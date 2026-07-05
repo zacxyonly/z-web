@@ -223,7 +223,10 @@ servers:
                 server("127.0.0.1", 8080, "web_admin"),
             ],
         };
-        assert!(matches!(config.validate(), Err(ConfigError::DuplicatePort(8080))));
+        assert!(matches!(
+            config.validate(),
+            Err(ConfigError::DuplicatePort(8080))
+        ));
     }
 
     #[test]

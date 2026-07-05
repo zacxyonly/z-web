@@ -50,7 +50,13 @@ async fn main() {
 
     // State: map of port → (shutdown_tx, file_watcher)
     // shutdown_tx is a oneshot used to kill that server instance
-    let mut running: HashMap<u16, (tokio::sync::oneshot::Sender<()>, Box<dyn std::any::Any + Send>)> = HashMap::new();
+    let mut running: HashMap<
+        u16,
+        (
+            tokio::sync::oneshot::Sender<()>,
+            Box<dyn std::any::Any + Send>,
+        ),
+    > = HashMap::new();
 
     // Initial server spawn
     spawn_servers(&config.servers, &mut running);
@@ -110,7 +116,13 @@ async fn main() {
 /// Spawn servers for the given configs, inserting into `running`.
 fn spawn_servers(
     servers: &[ServerConfig],
-    running: &mut HashMap<u16, (tokio::sync::oneshot::Sender<()>, Box<dyn std::any::Any + Send>)>,
+    running: &mut HashMap<
+        u16,
+        (
+            tokio::sync::oneshot::Sender<()>,
+            Box<dyn std::any::Any + Send>,
+        ),
+    >,
 ) {
     for server_cfg in servers {
         let port = server_cfg.port;
@@ -134,7 +146,9 @@ fn spawn_servers(
         };
 
         let (reload_tx, _) = broadcast::channel::<()>(64);
-        let state = Arc::new(server::AppState { tx: reload_tx.clone() });
+        let state = Arc::new(server::AppState {
+            tx: reload_tx.clone(),
+        });
 
         let file_watcher = match spawn_watcher(&server_cfg.web_folder, reload_tx) {
             Ok(w) => w,
@@ -192,4 +206,3 @@ async fn shutdown_signal() {
     #[cfg(not(unix))]
     ctrl_c.await;
 }
-
