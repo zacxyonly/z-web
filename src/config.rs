@@ -33,7 +33,10 @@ impl fmt::Display for ConfigError {
             ConfigError::Io(e) => write!(f, "I/O error: {e}"),
             ConfigError::Parse(e) => write!(f, "Failed to parse {CONFIG_FILE}: {e}"),
             ConfigError::DuplicatePort(port) => {
-                write!(f, "Duplicate port {port} in config.yaml — each server needs a unique port")
+                write!(
+                    f,
+                    "Duplicate port {port} in config.yaml — each server needs a unique port"
+                )
             }
             ConfigError::InvalidAddress { ip, port } => {
                 write!(f, "Invalid address \"{ip}:{port}\" in config.yaml")
