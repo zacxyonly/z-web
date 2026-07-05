@@ -1,0 +1,13 @@
+# z-web configuration
+# Edit this file freely — changes are applied automatically (hot reload).
+# Add new servers, remove existing ones, or change ports/folders on the fly.
+
+servers:
+  - ip: "0.0.0.0"
+    port: 8080
+    web_folder: "web"
+
+# Uncomment to add more servers:
+#   - ip: "127.0.0.1"
+#     port: 8081
+#     web_folder: "web_admin"

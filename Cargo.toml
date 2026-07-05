@@ -1,0 +1,30 @@
+[package]
+name = "z-web"
+version = "1.0.0"
+edition = "2021"
+description = "Lightweight multi-server static file server with hot reload"
+license = "MIT"
+repository = "https://github.com/zacxyonly/z-web"
+readme = "README.md"
+keywords = ["static-server", "hot-reload", "http", "axum", "cli"]
+categories = ["web-programming::http-server", "command-line-utilities"]
+authors = ["zacxyonly"]
+
+[dependencies]
+
+axum = { version = "0.7", features = ["ws"] }
+tower-http = { version = "0.5", features = ["fs", "compression-gzip", "set-header"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "signal"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+notify = "6"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
