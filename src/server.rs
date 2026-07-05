@@ -8,9 +8,7 @@ use axum::{
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tower_http::{
-    compression::CompressionLayer,
-    services::ServeDir,
-    set_header::SetResponseHeaderLayer,
+    compression::CompressionLayer, services::ServeDir, set_header::SetResponseHeaderLayer,
 };
 use tracing::{debug, warn};
 
