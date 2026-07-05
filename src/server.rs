@@ -32,9 +32,7 @@ pub fn build_app(state: Arc<AppState>, cfg: &ServerConfig) -> Router {
                 async move { ws.on_upgrade(move |socket| handle_ws(socket, s)) }
             }),
         )
-        .fallback_service(
-            ServeDir::new(&cfg.web_folder).append_index_html_on_directories(true),
-        )
+        .fallback_service(ServeDir::new(&cfg.web_folder).append_index_html_on_directories(true))
         .layer(CompressionLayer::new())
         .layer(SetResponseHeaderLayer::if_not_present(
             header::CACHE_CONTROL,
