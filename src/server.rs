@@ -1,6 +1,7 @@
 use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
     http::{header, StatusCode},
+    middleware,
     response::IntoResponse,
     routing::get,
     Json, Router,
@@ -13,6 +14,7 @@ use tower_http::{
 use tracing::{debug, warn};
 
 use crate::config::ServerConfig;
+use crate::php::php_middleware;
 
 pub struct AppState {
     pub tx: broadcast::Sender<()>,
@@ -20,6 +22,7 @@ pub struct AppState {
 
 pub fn build_app(state: Arc<AppState>, cfg: &ServerConfig) -> Router {
     let state_ws = state.clone();
+    let php_cfg = Arc::new(cfg.clone());
 
     Router::new()
         .route("/healthz", get(health_handler))
@@ -31,6 +34,7 @@ pub fn build_app(state: Arc<AppState>, cfg: &ServerConfig) -> Router {
             }),
         )
         .fallback_service(ServeDir::new(&cfg.web_folder).append_index_html_on_directories(true))
+        .layer(middleware::from_fn_with_state(php_cfg, php_middleware))
         .layer(CompressionLayer::new())
         .layer(SetResponseHeaderLayer::if_not_present(
             header::CACHE_CONTROL,

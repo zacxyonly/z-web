@@ -3,6 +3,21 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.1.0] - 2026-07-05
+
+### Added
+- Optional PHP support: set `php: true` on a server entry to execute `.php`
+  files (and `index.php` for directory requests) via `php-cgi`, instead of
+  serving them as static text.
+  - New per-server config fields: `php` (bool, default `false`) and
+    `php_cgi_path` (string, default `"php-cgi"`).
+  - Uses classic CGI (one `php-cgi` process per request) — no extra
+    long-running service, no new dependencies beyond PHP itself on the host.
+  - Path resolution is sandboxed to `web_folder`; `..` traversal and symlink
+    escapes are rejected.
+  - Fully backward compatible: existing `config.yaml` files without a `php`
+    field keep working unchanged, with PHP execution off by default.
+
 ## [1.0.0] - 2026-07-05
 
 First public release.

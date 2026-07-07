@@ -11,11 +11,15 @@ servers:
   - ip: "0.0.0.0"
     port: 8080
     web_folder: "web"
+    # Set to true to execute .php files (and index.php) via php-cgi
+    php: false
+    # php_cgi_path: "php-cgi"   # override if php-cgi isn't on PATH
 
   # Uncomment to add more:
   # - ip: "127.0.0.1"
   #   port: 8081
   #   web_folder: "web_admin"
+  #   php: true
 "#;
 
 /// Errors that can occur while loading, parsing, or validating config.yaml.
@@ -59,11 +63,22 @@ impl From<serde_yaml::Error> for ConfigError {
     }
 }
 
+fn default_php_cgi_path() -> String {
+    "php-cgi".to_string()
+}
+
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 pub struct ServerConfig {
     pub ip: String,
     pub port: u16,
     pub web_folder: String,
+    /// Execute `.php` files (and `index.php`) through `php-cgi`.
+    /// Defaults to `false` so existing config.yaml files keep working unchanged.
+    #[serde(default)]
+    pub php: bool,
+    /// Path to the `php-cgi` binary. Defaults to `php-cgi` (resolved via PATH).
+    #[serde(default = "default_php_cgi_path")]
+    pub php_cgi_path: String,
 }
 
 impl ServerConfig {
@@ -185,6 +200,8 @@ mod tests {
             ip: ip.to_string(),
             port,
             web_folder: folder.to_string(),
+            php: false,
+            php_cgi_path: default_php_cgi_path(),
         }
     }
 
@@ -242,5 +259,33 @@ servers:
     fn socket_addr_invalid_ip_errors_instead_of_panicking() {
         let s = server("not-an-ip", 8080, "web");
         assert!(s.socket_addr().is_err());
+    }
+
+    #[test]
+    fn php_defaults_to_disabled_for_backward_compatibility() {
+        let yaml = r#"
+servers:
+  - ip: "0.0.0.0"
+    port: 8080
+    web_folder: "web"
+"#;
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        assert!(!config.servers[0].php);
+        assert_eq!(config.servers[0].php_cgi_path, "php-cgi");
+    }
+
+    #[test]
+    fn php_can_be_enabled_with_custom_cgi_path() {
+        let yaml = r#"
+servers:
+  - ip: "0.0.0.0"
+    port: 8080
+    web_folder: "web"
+    php: true
+    php_cgi_path: "/usr/bin/php-cgi8.3"
+"#;
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        assert!(config.servers[0].php);
+        assert_eq!(config.servers[0].php_cgi_path, "/usr/bin/php-cgi8.3");
     }
 }

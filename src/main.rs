@@ -1,4 +1,5 @@
 mod config;
+mod php;
 mod server;
 mod watcher;
 
