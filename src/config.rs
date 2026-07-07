@@ -16,6 +16,16 @@ servers:
   # - ip: "127.0.0.1"
   #   port: 8081
   #   web_folder: "web_admin"
+
+  # Uncomment to route .php requests to php-fpm (requires php-fpm running):
+  # - ip: "0.0.0.0"
+  #   port: 8082
+  #   web_folder: "web_php"
+  #   php:
+  #     enabled: true
+  #     fpm_socket: "unix:/run/php/php8.2-fpm.sock"  # or "tcp:127.0.0.1:9000"
+  #     extension: ".php"
+  #     index: "index.php"
 "#;
 
 /// Errors that can occur while loading, parsing, or validating config.yaml.
@@ -33,10 +43,7 @@ impl fmt::Display for ConfigError {
             ConfigError::Io(e) => write!(f, "I/O error: {e}"),
             ConfigError::Parse(e) => write!(f, "Failed to parse {CONFIG_FILE}: {e}"),
             ConfigError::DuplicatePort(port) => {
-                write!(
-                    f,
-                    "Duplicate port {port} in config.yaml — each server needs a unique port"
-                )
+                write!(f, "Duplicate port {port} in config.yaml — each server needs a unique port")
             }
             ConfigError::InvalidAddress { ip, port } => {
                 write!(f, "Invalid address \"{ip}:{port}\" in config.yaml")
@@ -64,6 +71,66 @@ pub struct ServerConfig {
     pub ip: String,
     pub port: u16,
     pub web_folder: String,
+    /// Optional PHP-FPM backend for this server. If absent, requests are
+    /// served as static files only (previous behavior, unchanged).
+    pub php: Option<PhpConfig>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_php_extension() -> String {
+    ".php".to_string()
+}
+
+fn default_php_index() -> String {
+    "index.php".to_string()
+}
+
+/// PHP-FPM FastCGI backend configuration for a single server.
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+pub struct PhpConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Where php-fpm is listening. Either:
+    ///   "unix:/run/php/php8.2-fpm.sock"
+    ///   "tcp:127.0.0.1:9000"
+    pub fpm_socket: String,
+    /// File extension routed to PHP-FPM (default ".php").
+    #[serde(default = "default_php_extension")]
+    pub extension: String,
+    /// Filename used when a directory is requested (default "index.php").
+    #[serde(default = "default_php_index")]
+    pub index: String,
+}
+
+/// Where to reach php-fpm, parsed from `PhpConfig::fpm_socket`.
+#[derive(Debug, Clone)]
+pub enum FpmTarget {
+    Unix(String),
+    Tcp(String, u16),
+}
+
+impl PhpConfig {
+    pub fn target(&self) -> Result<FpmTarget, String> {
+        if let Some(path) = self.fpm_socket.strip_prefix("unix:") {
+            Ok(FpmTarget::Unix(path.to_string()))
+        } else if let Some(addr) = self.fpm_socket.strip_prefix("tcp:") {
+            let (host, port) = addr
+                .rsplit_once(':')
+                .ok_or_else(|| format!("invalid tcp address in fpm_socket: {addr}"))?;
+            let port: u16 = port
+                .parse()
+                .map_err(|_| format!("invalid port in fpm_socket: {addr}"))?;
+            Ok(FpmTarget::Tcp(host.to_string(), port))
+        } else {
+            Err(format!(
+                "fpm_socket must start with \"unix:\" or \"tcp:\", got: {}",
+                self.fpm_socket
+            ))
+        }
+    }
 }
 
 impl ServerConfig {
@@ -185,6 +252,7 @@ mod tests {
             ip: ip.to_string(),
             port,
             web_folder: folder.to_string(),
+            php: None,
         }
     }
 
@@ -226,10 +294,7 @@ servers:
                 server("127.0.0.1", 8080, "web_admin"),
             ],
         };
-        assert!(matches!(
-            config.validate(),
-            Err(ConfigError::DuplicatePort(8080))
-        ));
+        assert!(matches!(config.validate(), Err(ConfigError::DuplicatePort(8080))));
     }
 
     #[test]

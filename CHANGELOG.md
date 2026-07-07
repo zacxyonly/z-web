@@ -3,6 +3,18 @@
 All notable changes to this project are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.1.0] - 2026-07-07
+
+### Added
+- PHP-FPM FastCGI proxy support, configured per-server via `php:` in
+  `config.yaml` (`enabled`, `fpm_socket`, `extension`, `index`).
+- `fpm_socket` supports both Unix sockets (`unix:/path/to.sock`) and TCP
+  (`tcp:host:port`).
+- Requests matching the configured PHP extension (or a directory falling
+  back to the configured index file) are forwarded to php-fpm; everything
+  else continues to be served as static files, unchanged.
+- Path-traversal guard on resolved PHP script paths.
+
 ## [1.0.0] - 2026-07-05
 
 First public release.

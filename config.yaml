@@ -11,3 +11,13 @@ servers:
 #   - ip: "127.0.0.1"
 #     port: 8081
 #     web_folder: "web_admin"
+
+# Uncomment to route .php requests to php-fpm (requires php-fpm running):
+#   - ip: "0.0.0.0"
+#     port: 8082
+#     web_folder: "web_php"
+#     php:
+#       enabled: true
+#       fpm_socket: "unix:/run/php/php8.2-fpm.sock"  # or "tcp:127.0.0.1:9000"
+#       extension: ".php"
+#       index: "index.php"

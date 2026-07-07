@@ -1,4 +1,5 @@
 mod config;
+mod php;
 mod server;
 mod watcher;
 
@@ -50,13 +51,7 @@ async fn main() {
 
     // State: map of port → (shutdown_tx, file_watcher)
     // shutdown_tx is a oneshot used to kill that server instance
-    let mut running: HashMap<
-        u16,
-        (
-            tokio::sync::oneshot::Sender<()>,
-            Box<dyn std::any::Any + Send>,
-        ),
-    > = HashMap::new();
+    let mut running: HashMap<u16, (tokio::sync::oneshot::Sender<()>, Box<dyn std::any::Any + Send>)> = HashMap::new();
 
     // Initial server spawn
     spawn_servers(&config.servers, &mut running);
@@ -116,13 +111,7 @@ async fn main() {
 /// Spawn servers for the given configs, inserting into `running`.
 fn spawn_servers(
     servers: &[ServerConfig],
-    running: &mut HashMap<
-        u16,
-        (
-            tokio::sync::oneshot::Sender<()>,
-            Box<dyn std::any::Any + Send>,
-        ),
-    >,
+    running: &mut HashMap<u16, (tokio::sync::oneshot::Sender<()>, Box<dyn std::any::Any + Send>)>,
 ) {
     for server_cfg in servers {
         let port = server_cfg.port;
@@ -148,6 +137,7 @@ fn spawn_servers(
         let (reload_tx, _) = broadcast::channel::<()>(64);
         let state = Arc::new(server::AppState {
             tx: reload_tx.clone(),
+            cfg: server_cfg.clone(),
         });
 
         let file_watcher = match spawn_watcher(&server_cfg.web_folder, reload_tx) {
@@ -172,11 +162,14 @@ fn spawn_servers(
                 }
             };
             info!(addr = %addr, folder = %folder, "Server listening");
-            let _ = axum::serve(listener, app)
-                .with_graceful_shutdown(async move {
-                    let _ = shutdown_rx.await;
-                })
-                .await;
+            let _ = axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .with_graceful_shutdown(async move {
+                let _ = shutdown_rx.await;
+            })
+            .await;
             info!(addr = %addr, "Server stopped");
         });
 
@@ -206,3 +199,4 @@ async fn shutdown_signal() {
     #[cfg(not(unix))]
     ctrl_c.await;
 }
+

@@ -15,15 +15,16 @@ pub fn spawn_watcher(
 ) -> Result<impl Watcher, notify::Error> {
     let folder_owned = folder.to_string();
 
-    let mut watcher =
-        notify::recommended_watcher(move |res: Result<Event, notify::Error>| match res {
+    let mut watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
+        match res {
             Ok(event) if should_reload(&event) => {
                 debug!(folder = %folder_owned, kind = ?event.kind, "Change → reload");
                 let _ = tx.send(());
             }
             Ok(_) => {}
             Err(e) => warn!("Watcher error: {e}"),
-        })?;
+        }
+    })?;
 
     watcher.watch(Path::new(folder), RecursiveMode::Recursive)?;
     Ok(watcher)
@@ -38,15 +39,16 @@ pub fn spawn_config_watcher(
 ) -> Result<impl Watcher, notify::Error> {
     let label = config_path.to_string();
 
-    let mut watcher =
-        notify::recommended_watcher(move |res: Result<Event, notify::Error>| match res {
+    let mut watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
+        match res {
             Ok(event) if should_reload(&event) => {
                 debug!(file = %label, kind = ?event.kind, "config.yaml changed");
                 let _ = tx.try_send(());
             }
             Ok(_) => {}
             Err(e) => warn!("Config watcher error: {e}"),
-        })?;
+        }
+    })?;
 
     // Watch parent dir so we catch atomic writes (editor write+rename)
     let path = Path::new(config_path);
