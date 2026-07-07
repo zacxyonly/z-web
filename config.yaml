@@ -6,8 +6,13 @@ servers:
   - ip: "0.0.0.0"
     port: 8080
     web_folder: "web"
+    # Set to true to execute .php files (and index.php) via php-cgi.
+    # Requires php-cgi installed on the host (apt install php-cgi / apk add php83-cgi).
+    php: false
+    # php_cgi_path: "php-cgi"   # override only if php-cgi isn't on PATH
 
 # Uncomment to add more servers:
 #   - ip: "127.0.0.1"
 #     port: 8081
 #     web_folder: "web_admin"
+#     php: true
