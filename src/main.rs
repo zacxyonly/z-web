@@ -71,16 +71,8 @@ async fn main() {
         }
     };
 
-    // State: map of port → (config, shutdown_tx, file_watcher)
-    // shutdown_tx is a oneshot used to kill that server instance
-    let mut running: HashMap<
-        u16,
-        (
-            ServerConfig,
-            tokio::sync::oneshot::Sender<()>,
-            Box<dyn std::any::Any + Send>,
-        ),
-    > = HashMap::new();
+    // State: map of port → ServerInstance
+    let mut running: HashMap<u16, ServerInstance> = HashMap::new();
 
     // Initial server spawn
     spawn_servers(&config.servers, &mut running).await;
@@ -108,19 +100,19 @@ async fn main() {
 
                         // 1. Stop removed servers
                         for port in old_ports.difference(&new_ports).copied().collect::<Vec<_>>() {
-                            if let Some((_, shutdown_tx, _)) = running.remove(&port) {
+                            if let Some(instance) = running.remove(&port) {
                                 info!(port, "Stopping removed server");
-                                let _ = shutdown_tx.send(());
+                                let _ = instance.shutdown_tx.send(());
                             }
                         }
 
                         // 2. Restart servers whose configuration has changed on the same port
                         for new_s in &new_cfg.servers {
-                            if let Some((old_s, _, _)) = running.get(&new_s.port) {
-                                if old_s != new_s {
+                            if let Some(instance) = running.get(&new_s.port) {
+                                if instance.config != *new_s {
                                     info!(port = new_s.port, "Server configuration changed, restarting...");
-                                    if let Some((_, shutdown_tx, _)) = running.remove(&new_s.port) {
-                                        let _ = shutdown_tx.send(());
+                                    if let Some(old) = running.remove(&new_s.port) {
+                                        let _ = old.shutdown_tx.send(());
                                     }
                                 }
                             }
@@ -149,17 +141,16 @@ async fn main() {
     }
 }
 
+struct ServerInstance {
+    config: ServerConfig,
+    shutdown_tx: tokio::sync::oneshot::Sender<()>,
+    _watcher: notify::RecommendedWatcher,
+}
+
 /// Spawn servers for the given configs, inserting into `running`.
 async fn spawn_servers(
     servers: &[ServerConfig],
-    running: &mut HashMap<
-        u16,
-        (
-            ServerConfig,
-            tokio::sync::oneshot::Sender<()>,
-            Box<dyn std::any::Any + Send>,
-        ),
-    >,
+    running: &mut HashMap<u16, ServerInstance>,
 ) {
     for server_cfg in servers {
         let port = server_cfg.port;
@@ -220,7 +211,11 @@ async fn spawn_servers(
 
         running.insert(
             port,
-            (server_cfg.clone(), shutdown_tx, Box::new(file_watcher)),
+            ServerInstance {
+                config: server_cfg.clone(),
+                shutdown_tx,
+                _watcher: file_watcher,
+            },
         );
     }
 }

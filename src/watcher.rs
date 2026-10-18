@@ -1,6 +1,6 @@
 use notify::{
     event::{EventKind, ModifyKind},
-    Event, RecursiveMode, Watcher,
+    Event, RecommendedWatcher, RecursiveMode, Watcher,
 };
 use std::path::Path;
 use tokio::sync::broadcast;
@@ -13,7 +13,7 @@ use tracing::{debug, warn};
 pub fn spawn_watcher(
     folder: &str,
     tx: broadcast::Sender<()>,
-) -> Result<impl Watcher, notify::Error> {
+) -> Result<RecommendedWatcher, notify::Error> {
     let folder_owned = folder.to_string();
 
     let mut watcher =
@@ -36,7 +36,7 @@ pub fn spawn_watcher(
 pub fn spawn_config_watcher(
     config_path: &str,
     tx: tokio::sync::mpsc::Sender<()>,
-) -> Result<impl Watcher, notify::Error> {
+) -> Result<RecommendedWatcher, notify::Error> {
     let label = config_path.to_string();
     let path = Path::new(config_path);
     let target_filename = path

@@ -112,11 +112,12 @@ impl ServerConfig {
     /// Returns an error instead of panicking on I/O failure.
     pub fn ensure_folder(&self) -> std::io::Result<()> {
         let folder = &self.web_folder;
-        if Path::new(folder).exists() {
+        let folder_path = Path::new(folder);
+        if folder_path.exists() {
             return Ok(());
         }
         warn!(folder = %folder, "Web folder missing, creating with default index.html");
-        fs::create_dir_all(folder)?;
+        fs::create_dir_all(folder_path)?;
 
         let html = format!(
             r#"<!DOCTYPE html>
@@ -127,30 +128,22 @@ impl ServerConfig {
   <title>z-web | :{port}</title>
   <style>
     *{{box-sizing:border-box;margin:0;padding:0}}
-    body{{font-family:'Courier New',monospace;background:#0d0d0d;color:#00ffcc;
-         display:flex;align-items:center;justify-content:center;min-height:100vh}}
-    .card{{border:1px solid #00ffcc33;border-radius:8px;padding:2rem 3rem;
-           text-align:center;background:#111}}
-    h1{{font-size:1.8rem;margin-bottom:.5rem}}
-    p{{color:#888;margin-top:.5rem;font-size:.9rem}}
-    .badge{{display:inline-block;margin-top:1rem;padding:.25rem .75rem;
-            border:1px solid #00ffcc55;border-radius:4px;font-size:.75rem;color:#00ffcc99}}
+    body{{font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+         background:#0f172a;color:#f8fafc;display:flex;align-items:center;justify-content:center;min-height:100vh}}
+    .card{{border:1px solid #334155;border-radius:12px;padding:2.5rem 3.5rem;text-align:center;
+           background:#1e293b;box-shadow:0 10px 25px -5px rgba(0,0,0,0.3)}}
+    h1{{font-size:2rem;margin-bottom:.5rem;color:#38bdf8}}
+    p{{color:#94a3b8;margin-top:.5rem;font-size:1rem}}
+    .badge{{display:inline-block;margin-top:1.25rem;padding:.35rem .85rem;
+            background:#0284c7;border-radius:9999px;font-size:.8rem;font-weight:600;color:#fff}}
   </style>
 </head>
 <body>
   <div class="card">
     <h1>⚡ z-web</h1>
     <p>Serving <b>{folder}</b> on port <b>{port}</b></p>
-    <span class="badge">Hot Reload Active</span>
+    <span class="badge">Live Reload Active</span>
   </div>
-  <script>
-    (function(){{
-      var proto=location.protocol==='https:'?'wss:':'ws:';
-      var ws=new WebSocket(proto+'//'+location.host+'/livereload');
-      ws.onmessage=function(e){{if(e.data==='reload')location.reload();}};
-      ws.onclose=function(){{setTimeout(function(){{location.reload();}},2000);}};
-    }})();
-  </script>
 </body>
 </html>
 "#,
@@ -158,7 +151,7 @@ impl ServerConfig {
             folder = folder,
         );
 
-        fs::write(format!("{folder}/index.html"), html)?;
+        fs::write(folder_path.join("index.html"), html)?;
 
         info!(folder = %folder, port = self.port, "Created default index.html");
         Ok(())

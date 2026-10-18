@@ -1,8 +1,9 @@
 use axum::{
+    body::to_bytes,
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
     http::{header, StatusCode},
-    middleware,
-    response::IntoResponse,
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
     routing::get,
     Json, Router,
 };
@@ -34,11 +35,16 @@ pub fn build_app(state: Arc<AppState>, cfg: &ServerConfig) -> Router {
             }),
         )
         .fallback_service(ServeDir::new(&cfg.web_folder).append_index_html_on_directories(true))
+        .layer(middleware::from_fn(livereload_inject_middleware))
         .layer(middleware::from_fn_with_state(php_cfg, php_middleware))
         .layer(CompressionLayer::new())
         .layer(SetResponseHeaderLayer::if_not_present(
             header::CACHE_CONTROL,
             header::HeaderValue::from_static("no-cache, no-store, must-revalidate"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::ACCESS_CONTROL_ALLOW_ORIGIN,
+            header::HeaderValue::from_static("*"),
         ))
 }
 
@@ -52,6 +58,54 @@ async fn health_handler() -> impl IntoResponse {
     )
 }
 
+/// Automatically inject the WebSocket live-reload snippet before `</body>` for HTML responses.
+async fn livereload_inject_middleware(req: axum::extract::Request, next: Next) -> Response {
+    let response = next.run(req).await;
+
+    let is_html = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map_or(false, |ct| ct.starts_with("text/html"));
+
+    if !is_html || response.status() != StatusCode::OK {
+        return response;
+    }
+
+    let (mut parts, body) = response.into_parts();
+    let bytes = match to_bytes(body, 20 * 1024 * 1024).await {
+        Ok(b) => b,
+        Err(_) => return Response::from_parts(parts, axum::body::Body::empty()),
+    };
+
+    let html_str = match std::str::from_utf8(&bytes) {
+        Ok(s) => s,
+        Err(_) => return Response::from_parts(parts, axum::body::Body::from(bytes)),
+    };
+
+    if html_str.contains("/livereload") {
+        return Response::from_parts(parts, axum::body::Body::from(bytes));
+    }
+
+    const SCRIPT: &str = r#"<script>
+(function(){
+  var proto=location.protocol==='https:'?'wss:':'ws:';
+  var ws=new WebSocket(proto+'//'+location.host+'/livereload');
+  ws.onmessage=function(e){if(e.data==='reload')location.reload();};
+  ws.onclose=function(){setTimeout(function(){location.reload();},2000);};
+})();
+</script>"#;
+
+    let modified = if let Some(pos) = html_str.to_ascii_lowercase().rfind("</body>") {
+        format!("{}{}\n{}", &html_str[..pos], SCRIPT, &html_str[pos..])
+    } else {
+        format!("{}\n{}", html_str, SCRIPT)
+    };
+
+    parts.headers.remove(header::CONTENT_LENGTH);
+    Response::from_parts(parts, axum::body::Body::from(modified))
+}
+
 async fn handle_ws(mut socket: WebSocket, state: Arc<AppState>) {
     let mut rx = state.tx.subscribe();
 
@@ -60,6 +114,10 @@ async fn handle_ws(mut socket: WebSocket, state: Arc<AppState>) {
             result = rx.recv() => {
                 match result {
                     Ok(()) => {
+                        // Debounce: wait briefly and discard rapid subsequent events
+                        tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+                        while rx.try_recv().is_ok() {}
+
                         debug!("Sending reload to client");
                         if socket.send(Message::Text("reload".into())).await.is_err() {
                             break;
