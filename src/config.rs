@@ -14,12 +14,14 @@ servers:
     # Set to true to execute .php files (and index.php) via php-cgi
     php: false
     # php_cgi_path: "php-cgi"   # override if php-cgi isn't on PATH
+    # spa: false                # set true to fallback 404s to index.html for SPAs (React/Vue)
 
   # Uncomment to add more:
   # - ip: "127.0.0.1"
   #   port: 8081
   #   web_folder: "web_admin"
   #   php: true
+  #   spa: false
 "#;
 
 /// Errors that can occur while loading, parsing, or validating config.yaml.
@@ -93,6 +95,9 @@ pub struct ServerConfig {
     /// Path to the `php-cgi` binary. Defaults to `php-cgi` (resolved via PATH).
     #[serde(default = "default_php_cgi_path")]
     pub php_cgi_path: String,
+    /// Fallback 404 routes to index.html for Single Page Applications (React, Vue, Vite, etc.).
+    #[serde(default)]
+    pub spa: bool,
 }
 
 impl ServerConfig {
@@ -164,24 +169,32 @@ pub struct Config {
 }
 
 impl Config {
-    /// Load config exclusively from config.yaml.
-    /// If it doesn't exist, create it with defaults.
-    pub fn load() -> Result<Self, ConfigError> {
-        if !Path::new(CONFIG_FILE).exists() {
-            info!(file = %CONFIG_FILE, "No config found, creating default");
-            fs::write(CONFIG_FILE, DEFAULT_CONFIG_YAML)?;
+    /// Load config from file path.
+    /// If default path ("config.yaml") doesn't exist, create it with defaults.
+    pub fn load(config_path: &str) -> Result<Self, ConfigError> {
+        let path = Path::new(config_path);
+        if !path.exists() {
+            if config_path == CONFIG_FILE {
+                info!(file = %config_path, "No config found, creating default");
+                fs::write(config_path, DEFAULT_CONFIG_YAML)?;
+            } else {
+                return Err(ConfigError::Io(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("Config file '{config_path}' not found"),
+                )));
+            }
         }
 
-        info!(file = %CONFIG_FILE, "Loading config");
-        let content = fs::read_to_string(CONFIG_FILE)?;
+        info!(file = %config_path, "Loading config");
+        let content = fs::read_to_string(config_path)?;
         let config: Config = serde_yaml::from_str(&content)?;
         config.validate()?;
         Ok(config)
     }
 
-    /// Reload config from config.yaml (used by hot-reload path).
-    pub fn reload() -> Result<Self, ConfigError> {
-        let content = fs::read_to_string(CONFIG_FILE)?;
+    /// Reload config from file path (used by hot-reload path).
+    pub fn reload(config_path: &str) -> Result<Self, ConfigError> {
+        let content = fs::read_to_string(config_path)?;
         let config: Config = serde_yaml::from_str(&content)?;
         config.validate()?;
         Ok(config)
@@ -216,7 +229,21 @@ mod tests {
             web_folder: folder.to_string(),
             php: false,
             php_cgi_path: default_php_cgi_path(),
+            spa: false,
         }
+    }
+
+    #[test]
+    fn parses_spa_config() {
+        let yaml = r#"
+servers:
+  - ip: "0.0.0.0"
+    port: 8080
+    web_folder: "dist"
+    spa: true
+"#;
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        assert!(config.servers[0].spa);
     }
 
     #[test]

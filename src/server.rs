@@ -7,10 +7,12 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 use tokio::sync::broadcast;
 use tower_http::{
-    compression::CompressionLayer, services::ServeDir, set_header::SetResponseHeaderLayer,
+    compression::CompressionLayer,
+    services::{ServeDir, ServeFile},
+    set_header::SetResponseHeaderLayer,
 };
 use tracing::{debug, warn};
 
@@ -25,6 +27,19 @@ pub fn build_app(state: Arc<AppState>, cfg: &ServerConfig) -> Router {
     let state_ws = state.clone();
     let php_cfg = Arc::new(cfg.clone());
 
+    let folder_path = Path::new(&cfg.web_folder);
+    let mut serve_dir = ServeDir::new(&cfg.web_folder).append_index_html_on_directories(true);
+
+    if cfg.spa {
+        let index_file = folder_path.join("index.html");
+        serve_dir = serve_dir.fallback(ServeFile::new(index_file));
+    } else {
+        let not_found_file = folder_path.join("404.html");
+        if not_found_file.is_file() {
+            serve_dir = serve_dir.not_found_service(ServeFile::new(not_found_file));
+        }
+    }
+
     Router::new()
         .route("/healthz", get(health_handler))
         .route(
@@ -34,7 +49,7 @@ pub fn build_app(state: Arc<AppState>, cfg: &ServerConfig) -> Router {
                 async move { ws.on_upgrade(move |socket| handle_ws(socket, s)) }
             }),
         )
-        .fallback_service(ServeDir::new(&cfg.web_folder).append_index_html_on_directories(true))
+        .fallback_service(serve_dir)
         .layer(middleware::from_fn(livereload_inject_middleware))
         .layer(middleware::from_fn_with_state(php_cfg, php_middleware))
         .layer(CompressionLayer::new())

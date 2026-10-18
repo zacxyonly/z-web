@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       release_notes:
-        description: 'Catatan rilis (opsional, kosongkan untuk otomatis dari commits/CHANGELOG)'
+        description: 'Catatan rilis (opsional, kosongkan untuk otomatis generate dari commit)'
         required: false
         type: string
         default: ''
@@ -136,25 +136,11 @@ jobs:
             exit 0
           fi
 
-          # Cek apakah ada catatan rilis di CHANGELOG.md
-          CHANGELOG_NOTES=""
-          if [ -f "CHANGELOG.md" ]; then
-            CHANGELOG_NOTES=$(awk -v ver="$VERSION" '
-              $0 ~ "^## \\[" ver "\\]" { found=1; next }
-              found && /^## / { found=0 }
-              found { print }
-            ' CHANGELOG.md | sed -e '1{/^[[:space:]]*$/d}' -e '${/^[[:space:]]*$/d}')
-          fi
-
           CREATE_FLAGS=( "$TAG" --title "z-web $TAG" )
 
           if [ -n "$CUSTOM_NOTES" ]; then
             echo "Menggunakan release notes dari input..."
             CREATE_FLAGS+=( --notes "$CUSTOM_NOTES" )
-          elif [ -n "$CHANGELOG_NOTES" ]; then
-            echo "Menggunakan release notes dari CHANGELOG.md..."
-            echo "$CHANGELOG_NOTES" > release_notes_tmp.md
-            CREATE_FLAGS+=( --notes-file release_notes_tmp.md )
           else
             echo "Membuat release notes otomatis dari riwayat commit..."
             CREATE_FLAGS+=( --generate-notes )

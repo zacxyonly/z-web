@@ -14,8 +14,11 @@ use watcher::{spawn_config_watcher, spawn_watcher};
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
-    if args.len() > 1 {
-        match args[1].as_str() {
+    let mut config_path = CONFIG_FILE.to_string();
+
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
             "-v" | "--version" => {
                 println!("z-web v{}", env!("CARGO_PKG_VERSION"));
                 return;
@@ -27,12 +30,29 @@ async fn main() {
                 );
                 println!("Usage: z-web [OPTIONS]\n");
                 println!("Options:");
-                println!("  -v, --version    Print version information");
-                println!("  -h, --help       Print help information");
+                println!("  -c, --config <FILE>    Custom path to config.yaml (default: config.yaml)");
+                println!("  -v, --version          Print version information");
+                println!("  -h, --help             Print help information");
                 return;
             }
-            _ => {}
+            "-c" | "--config" => {
+                if i + 1 < args.len() {
+                    config_path = args[i + 1].clone();
+                    i += 1;
+                } else {
+                    eprintln!("Error: -c/--config requires a file path argument");
+                    std::process::exit(1);
+                }
+            }
+            arg if arg.starts_with("--config=") => {
+                config_path = arg.trim_start_matches("--config=").to_string();
+            }
+            unknown => {
+                eprintln!("Error: Unknown option '{unknown}'. Use --help for usage.");
+                std::process::exit(1);
+            }
         }
+        i += 1;
     }
 
     tracing_subscriber::fmt()
@@ -44,7 +64,7 @@ async fn main() {
         .compact()
         .init();
 
-    let config = match Config::load() {
+    let config = match Config::load(&config_path) {
         Ok(c) => c,
         Err(e) => {
             error!("Failed to load config: {e}");
@@ -53,20 +73,20 @@ async fn main() {
     };
 
     if config.servers.is_empty() {
-        warn!("No servers configured in config.yaml.");
+        warn!(file = %config_path, "No servers configured.");
         std::process::exit(0);
     }
 
     info!("z-web v{} starting", env!("CARGO_PKG_VERSION"));
 
-    // Channel for config.yaml change notifications
+    // Channel for config file change notifications
     let (cfg_tx, mut cfg_rx) = tokio::sync::mpsc::channel::<()>(4);
 
     // Keep config watcher alive for the duration of the program
-    let _config_watcher = match spawn_config_watcher(CONFIG_FILE, cfg_tx) {
+    let _config_watcher = match spawn_config_watcher(&config_path, cfg_tx) {
         Ok(w) => w,
         Err(e) => {
-            error!("Failed to watch config.yaml: {e}");
+            error!(file = %config_path, "Failed to watch config file: {e}");
             std::process::exit(1);
         }
     };
@@ -77,18 +97,18 @@ async fn main() {
     // Initial server spawn
     spawn_servers(&config.servers, &mut running).await;
 
-    info!("All servers running. Edit config.yaml to add/remove servers. Ctrl+C to stop.");
+    info!(file = %config_path, "All servers running. Edit config file to add/remove servers. Ctrl+C to stop.");
 
     loop {
         tokio::select! {
-            // config.yaml changed
+            // config file changed
             Some(_) = cfg_rx.recv() => {
                 // Debounce: drain any rapid successive events
                 tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
                 while cfg_rx.try_recv().is_ok() {}
 
-                info!("config.yaml changed, reloading...");
-                match Config::reload() {
+                info!(file = %config_path, "Config file changed, reloading...");
+                match Config::reload(&config_path) {
                     Err(e) => {
                         warn!("Config reload failed (keeping current servers): {e}");
                     }

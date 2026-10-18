@@ -26,11 +26,12 @@
 - **⚡ Blazing Fast Asynchronous Core** — Built on [Axum](https://github.com/tokio-rs/axum) and [Tokio](https://tokio.rs/) for minimal memory footprint and high throughput.
 - **🔄 Instant Live Reload** — Real-time browser auto-refresh via WebSockets (`/livereload`) on file changes with smart event debouncing.
 - **🌐 Multi-Server in One Binary** — Host multiple websites or ports concurrently from a single configuration file and process.
+- **⚛️ SPA Mode & Custom 404** — Native fallback to `index.html` for client-side routing (React, Vue, Vite) and automatic `404.html` delivery.
 - **⚙️ Live Configuration Reloading** — Add, remove, or modify server entries in `config.yaml` on the fly without stopping running instances.
 - **🐘 Plug-and-Play PHP Execution** — Optional `.php` execution via `php-cgi` without running separate daemon pools like PHP-FPM.
 - **🛡️ Built-in Security Hardening** — Sandboxed directory traversal prevention, HTTPOXY (CVE-2016-5385) mitigation, and 30s script execution timeouts.
 - **📦 True Static Binaries** — Fully self-contained musl binaries for Linux, universal macOS binaries, and native Windows builds.
-- **🗜️ Automatic Gzip Compression** — Built-in compression for static text assets (HTML, CSS, JS, JSON, SVG).
+- **🗜️ Automatic Gzip Compression & CORS** — Built-in compression for static text assets and permissive CORS for cross-port local API testing.
 
 ---
 
@@ -97,8 +98,9 @@ The optimized binary will be located at `target/release/z-web`.
 Usage: z-web [OPTIONS]
 
 Options:
-  -v, --version    Print version information
-  -h, --help       Print help information
+  -c, --config <FILE>    Custom path to config.yaml (default: config.yaml)
+  -v, --version          Print version information
+  -h, --help             Print help information
 ```
 
 ### Logging Configuration
@@ -113,16 +115,16 @@ RUST_LOG=z_web=warn ./z-web  # Warnings and errors only
 
 ## ⚙️ Configuration
 
-The single source of truth is **`config.yaml`**, loaded from the working directory:
+The default configuration file is **`config.yaml`** (or specify a custom path with `-c /path/to/config.yaml`):
 
 ```yaml
 # z-web configuration
 servers:
-  # Public frontend site
+  # Public frontend site (with SPA routing enabled)
   - ip: "0.0.0.0"
     port: 8080
     web_folder: "web"
-    php: false
+    spa: true                # fallback 404s to index.html for client-side routing
 
   # Internal admin dashboard with PHP support
   - ip: "127.0.0.1"
@@ -139,8 +141,12 @@ servers:
 | `ip` | `string` | *(Required)* | The IP address interface to bind to (e.g. `0.0.0.0` or `127.0.0.1`). |
 | `port` | `integer` | *(Required)* | The network port (1–65535). Duplicate ports are safely validated. |
 | `web_folder` | `string` | *(Required)* | Path to the directory of static/PHP assets to serve. |
+| `spa` | `boolean` | `false` | Enable Single Page Application mode: missing routes fallback to `index.html` with status 200. |
 | `php` | `boolean` | `false` | Enable execution of `.php` scripts via `php-cgi`. |
 | `php_cgi_path`| `string` | `"php-cgi"` | Path or executable name for PHP-CGI (searched on `$PATH` by default). |
+
+### Custom 404 Pages
+When `spa: false`, if a file named `404.html` exists in `web_folder`, `z-web` will automatically serve it with HTTP status `404 Not Found` whenever a static file is missing.
 
 ### 🔥 Hot Reloading Config
 You can edit `config.yaml` at any time while `z-web` is running:
