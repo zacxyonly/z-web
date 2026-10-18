@@ -22,9 +22,6 @@ on:
         required: false
         type: boolean
         default: false
-  push:
-    tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+*'
 
 permissions:
   contents: write
@@ -74,15 +71,10 @@ jobs:
         id: resolve
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            RAW_INPUT="${{ inputs.version }}"
-            RAW_INPUT="$(echo "$RAW_INPUT" | xargs)"
-            VERSION="${RAW_INPUT#[vV]}"
-            TAG="v$VERSION"
-          else
-            TAG="${{ github.ref_name }}"
-            VERSION="${TAG#[vV]}"
-          fi
+          RAW_INPUT="${{ inputs.version }}"
+          RAW_INPUT="$(echo "$RAW_INPUT" | xargs)"
+          VERSION="${RAW_INPUT#[vV]}"
+          TAG="v$VERSION"
 
           if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'; then
             echo "::error::Format versi tidak valid: '$VERSION'. Gunakan format semantic versioning (contoh: 1.2.0 atau 1.2.0-rc.1)."
@@ -95,7 +87,6 @@ jobs:
           echo "Target Tag: $TAG"
 
       - name: Sync version in Cargo.toml & Cargo.lock
-        if: github.event_name == 'workflow_dispatch'
         shell: bash
         run: |
           VERSION="${{ steps.resolve.outputs.version }}"
