@@ -64,7 +64,7 @@ pub async fn php_middleware(
 }
 
 fn is_php_path(path: &str) -> bool {
-    path.ends_with(".php")
+    path.to_ascii_lowercase().ends_with(".php")
 }
 
 /// Safely resolve a URL path against `web_folder`, rejecting anything that
@@ -105,6 +105,10 @@ async fn run_php_cgi(cfg: &ServerConfig, req: Request, script_path: PathBuf) -> 
         }
     };
 
+    let doc_root = Path::new(&cfg.web_folder)
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(&cfg.web_folder));
+
     let mut cmd = Command::new(&cfg.php_cgi_path);
     cmd.env_clear()
         .env("REDIRECT_STATUS", "200")
@@ -121,7 +125,7 @@ async fn run_php_cgi(cfg: &ServerConfig, req: Request, script_path: PathBuf) -> 
         .env("QUERY_STRING", &query)
         .env("SERVER_PORT", cfg.port.to_string())
         .env("SERVER_NAME", &cfg.ip)
-        .env("DOCUMENT_ROOT", &cfg.web_folder)
+        .env("DOCUMENT_ROOT", &doc_root)
         .env("CONTENT_LENGTH", body_bytes.len().to_string())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -136,9 +140,18 @@ async fn run_php_cgi(cfg: &ServerConfig, req: Request, script_path: PathBuf) -> 
     }
 
     // Forward client headers as HTTP_* CGI vars (standard CGI convention).
+    // Mitigate CVE-2016-5385 (httpoxy): never forward Proxy header as HTTP_PROXY.
+    // Also skip Content-Type and Content-Length which have dedicated CGI vars.
     for (name, value) in headers.iter() {
+        let name_str = name.as_str();
+        if name_str.eq_ignore_ascii_case("proxy")
+            || name_str.eq_ignore_ascii_case("content-type")
+            || name_str.eq_ignore_ascii_case("content-length")
+        {
+            continue;
+        }
         if let Ok(v) = value.to_str() {
-            let env_name = format!("HTTP_{}", name.as_str().to_uppercase().replace('-', "_"));
+            let env_name = format!("HTTP_{}", name_str.to_uppercase().replace('-', "_"));
             cmd.env(env_name, v);
         }
     }
@@ -167,13 +180,23 @@ async fn run_php_cgi(cfg: &ServerConfig, req: Request, script_path: PathBuf) -> 
         drop(stdin); // EOF so php-cgi knows the input is complete
     }
 
-    let output = match child.wait_with_output().await {
-        Ok(o) => o,
-        Err(e) => {
+    let timeout_duration = std::time::Duration::from_secs(30);
+    let output = match tokio::time::timeout(timeout_duration, child.wait_with_output()).await {
+        Ok(Ok(o)) => o,
+        Ok(Err(e)) => {
             error!("php-cgi process error: {e}");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "php-cgi execution failed",
+            )
+                .into_response();
+        }
+        Err(_) => {
+            error!(timeout_secs = 30, "php-cgi timed out, killing process");
+            let _ = child.start_kill();
+            return (
+                StatusCode::GATEWAY_TIMEOUT,
+                "504 Gateway Timeout: PHP script execution timed out",
             )
                 .into_response();
         }
@@ -267,6 +290,8 @@ mod tests {
     fn detects_php_paths() {
         assert!(is_php_path("/index.php"));
         assert!(is_php_path("/blog/post.php"));
+        assert!(is_php_path("/INDEX.PHP"));
+        assert!(is_php_path("/test.Php"));
         assert!(!is_php_path("/style.css"));
         assert!(!is_php_path("/"));
     }

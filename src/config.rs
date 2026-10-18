@@ -28,6 +28,8 @@ pub enum ConfigError {
     Io(std::io::Error),
     Parse(serde_yaml::Error),
     DuplicatePort(u16),
+    InvalidPort(u16),
+    EmptyWebFolder(u16),
     InvalidAddress { ip: String, port: u16 },
 }
 
@@ -40,6 +42,18 @@ impl fmt::Display for ConfigError {
                 write!(
                     f,
                     "Duplicate port {port} in config.yaml — each server needs a unique port"
+                )
+            }
+            ConfigError::InvalidPort(port) => {
+                write!(
+                    f,
+                    "Invalid port {port} in config.yaml — port must be between 1 and 65535"
+                )
+            }
+            ConfigError::EmptyWebFolder(port) => {
+                write!(
+                    f,
+                    "Server on port {port} has an empty web_folder in config.yaml"
                 )
             }
             ConfigError::InvalidAddress { ip, port } => {
@@ -131,7 +145,8 @@ impl ServerConfig {
   </div>
   <script>
     (function(){{
-      var ws=new WebSocket('ws://'+location.host+'/livereload');
+      var proto=location.protocol==='https:'?'wss:':'ws:';
+      var ws=new WebSocket(proto+'//'+location.host+'/livereload');
       ws.onmessage=function(e){{if(e.data==='reload')location.reload();}};
       ws.onclose=function(){{setTimeout(function(){{location.reload();}},2000);}};
     }})();
@@ -179,12 +194,18 @@ impl Config {
         Ok(config)
     }
 
-    /// Reject configs with duplicate ports before they ever reach the server spawner.
+    /// Validate config: reject duplicate ports, port 0, and empty web folders.
     fn validate(&self) -> Result<(), ConfigError> {
         let mut seen = std::collections::HashSet::new();
         for server in &self.servers {
+            if server.port == 0 {
+                return Err(ConfigError::InvalidPort(0));
+            }
             if !seen.insert(server.port) {
                 return Err(ConfigError::DuplicatePort(server.port));
+            }
+            if server.web_folder.trim().is_empty() {
+                return Err(ConfigError::EmptyWebFolder(server.port));
             }
         }
         Ok(())
@@ -287,5 +308,24 @@ servers:
         let config: Config = serde_yaml::from_str(yaml).unwrap();
         assert!(config.servers[0].php);
         assert_eq!(config.servers[0].php_cgi_path, "/usr/bin/php-cgi8.3");
+    }
+
+    #[test]
+    fn rejects_port_zero() {
+        let config = Config {
+            servers: vec![server("0.0.0.0", 0, "web")],
+        };
+        assert!(matches!(config.validate(), Err(ConfigError::InvalidPort(0))));
+    }
+
+    #[test]
+    fn rejects_empty_web_folder() {
+        let config = Config {
+            servers: vec![server("0.0.0.0", 8080, "   ")],
+        };
+        assert!(matches!(
+            config.validate(),
+            Err(ConfigError::EmptyWebFolder(8080))
+        ));
     }
 }

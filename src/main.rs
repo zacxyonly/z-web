@@ -71,18 +71,19 @@ async fn main() {
         }
     };
 
-    // State: map of port → (shutdown_tx, file_watcher)
+    // State: map of port → (config, shutdown_tx, file_watcher)
     // shutdown_tx is a oneshot used to kill that server instance
     let mut running: HashMap<
         u16,
         (
+            ServerConfig,
             tokio::sync::oneshot::Sender<()>,
             Box<dyn std::any::Any + Send>,
         ),
     > = HashMap::new();
 
     // Initial server spawn
-    spawn_servers(&config.servers, &mut running);
+    spawn_servers(&config.servers, &mut running).await;
 
     info!("All servers running. Edit config.yaml to add/remove servers. Ctrl+C to stop.");
 
@@ -105,23 +106,35 @@ async fn main() {
                         let old_ports: std::collections::HashSet<u16> =
                             running.keys().copied().collect();
 
-                        // Stop removed servers
+                        // 1. Stop removed servers
                         for port in old_ports.difference(&new_ports).copied().collect::<Vec<_>>() {
-                            if let Some((shutdown_tx, _)) = running.remove(&port) {
+                            if let Some((_, shutdown_tx, _)) = running.remove(&port) {
                                 info!(port, "Stopping removed server");
                                 let _ = shutdown_tx.send(());
                             }
                         }
 
-                        // Start new servers only (existing ports are left untouched)
-                        let new_servers: Vec<ServerConfig> = new_cfg
+                        // 2. Restart servers whose configuration has changed on the same port
+                        for new_s in &new_cfg.servers {
+                            if let Some((old_s, _, _)) = running.get(&new_s.port) {
+                                if old_s != new_s {
+                                    info!(port = new_s.port, "Server configuration changed, restarting...");
+                                    if let Some((_, shutdown_tx, _)) = running.remove(&new_s.port) {
+                                        let _ = shutdown_tx.send(());
+                                    }
+                                }
+                            }
+                        }
+
+                        // 3. Start new or restarted servers
+                        let to_start: Vec<ServerConfig> = new_cfg
                             .servers
                             .into_iter()
-                            .filter(|s| !old_ports.contains(&s.port))
+                            .filter(|s| !running.contains_key(&s.port))
                             .collect();
 
-                        if !new_servers.is_empty() {
-                            spawn_servers(&new_servers, &mut running);
+                        if !to_start.is_empty() {
+                            spawn_servers(&to_start, &mut running).await;
                         }
                     }
                 }
@@ -137,11 +150,12 @@ async fn main() {
 }
 
 /// Spawn servers for the given configs, inserting into `running`.
-fn spawn_servers(
+async fn spawn_servers(
     servers: &[ServerConfig],
     running: &mut HashMap<
         u16,
         (
+            ServerConfig,
             tokio::sync::oneshot::Sender<()>,
             Box<dyn std::any::Any + Send>,
         ),
@@ -168,6 +182,14 @@ fn spawn_servers(
             }
         };
 
+        let listener = match tokio::net::TcpListener::bind(addr).await {
+            Ok(l) => l,
+            Err(e) => {
+                error!(addr = %addr, "Bind failed: {e}");
+                continue;
+            }
+        };
+
         let (reload_tx, _) = broadcast::channel::<()>(64);
         let state = Arc::new(server::AppState {
             tx: reload_tx.clone(),
@@ -187,13 +209,6 @@ fn spawn_servers(
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
         tokio::spawn(async move {
-            let listener = match tokio::net::TcpListener::bind(addr).await {
-                Ok(l) => l,
-                Err(e) => {
-                    error!(addr = %addr, "Bind failed: {e}");
-                    return;
-                }
-            };
             info!(addr = %addr, folder = %folder, "Server listening");
             let _ = axum::serve(listener, app)
                 .with_graceful_shutdown(async move {
@@ -203,7 +218,10 @@ fn spawn_servers(
             info!(addr = %addr, "Server stopped");
         });
 
-        running.insert(port, (shutdown_tx, Box::new(file_watcher)));
+        running.insert(
+            port,
+            (server_cfg.clone(), shutdown_tx, Box::new(file_watcher)),
+        );
     }
 }
 
