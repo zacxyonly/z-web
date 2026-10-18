@@ -1,0 +1,235 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Nomor versi rilis (contoh: 1.2.0 atau v1.2.0)'
+        required: true
+        type: string
+      release_notes:
+        description: 'Catatan rilis (opsional, kosongkan untuk otomatis dari commits/CHANGELOG)'
+        required: false
+        type: string
+        default: ''
+      draft:
+        description: 'Buat sebagai draft release?'
+        required: false
+        type: boolean
+        default: false
+      prerelease:
+        description: 'Tandai sebagai pre-release?'
+        required: false
+        type: boolean
+        default: false
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+
+permissions:
+  contents: write
+
+jobs:
+  # Quality gate: jalankan format check, lint, dan test sebelum rilis
+  test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry & build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Run tests
+        run: cargo test --all --verbose
+
+  # Buat Git Tag dan GitHub Release via GitHub CLI
+  create-release:
+    name: Create GitHub Release
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      tag: ${{ steps.resolve.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve and validate version & tag
+        id: resolve
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            RAW_INPUT="${{ inputs.version }}"
+            RAW_INPUT="$(echo "$RAW_INPUT" | xargs)"
+            VERSION="${RAW_INPUT#[vV]}"
+            TAG="v$VERSION"
+          else
+            TAG="${{ github.ref_name }}"
+            VERSION="${TAG#[vV]}"
+          fi
+
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'; then
+            echo "::error::Format versi tidak valid: '$VERSION'. Gunakan format semantic versioning (contoh: 1.2.0 atau 1.2.0-rc.1)."
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Target Version: $VERSION"
+          echo "Target Tag: $TAG"
+
+      - name: Sync version in Cargo.toml & Cargo.lock
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          VERSION="${{ steps.resolve.outputs.version }}"
+          CURRENT_VERSION=$(grep -m1 '^version = ' Cargo.toml | cut -d '"' -f2)
+
+          if [ "$CURRENT_VERSION" != "$VERSION" ]; then
+            echo "Memperbarui versi Cargo.toml dari $CURRENT_VERSION ke $VERSION..."
+            sed -i -E '0,/^version = .*/s//version = "'"$VERSION"'"/' Cargo.toml
+            sed -i -E '/name = "z-web"/{n;s/version = ".*"/version = "'"$VERSION"'"/;}' Cargo.lock || true
+
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -am "chore(release): bump version to $VERSION"
+            git push origin "$GITHUB_REF_NAME" || echo "Notice: Push langsung ke branch gagal (mungkin protected branch); lanjut membuat tag..."
+          else
+            echo "Versi Cargo.toml ($CURRENT_VERSION) sudah sesuai target ($VERSION)."
+          fi
+
+      - name: Ensure Git tag exists
+        id: tag
+        shell: bash
+        run: |
+          TAG="${{ steps.resolve.outputs.tag }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG sudah ada."
+          else
+            echo "Membuat dan mendorong tag $TAG..."
+            git tag -a "$TAG" -m "Release $TAG"
+            git push origin "$TAG"
+          fi
+
+      - name: Extract notes & create GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.resolve.outputs.tag }}"
+          VERSION="${{ steps.resolve.outputs.version }}"
+          CUSTOM_NOTES="${{ inputs.release_notes }}"
+
+          # Cek apakah rilis sudah ada
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG sudah ada di GitHub."
+            exit 0
+          fi
+
+          # Cek apakah ada catatan rilis di CHANGELOG.md
+          CHANGELOG_NOTES=""
+          if [ -f "CHANGELOG.md" ]; then
+            CHANGELOG_NOTES=$(awk -v ver="$VERSION" '
+              $0 ~ "^## \\[" ver "\\]" { found=1; next }
+              found && /^## / { found=0 }
+              found { print }
+            ' CHANGELOG.md | sed -e '1{/^[[:space:]]*$/d}' -e '${/^[[:space:]]*$/d}')
+          fi
+
+          CREATE_FLAGS=( "$TAG" --title "z-web $TAG" )
+
+          if [ -n "$CUSTOM_NOTES" ]; then
+            echo "Menggunakan release notes dari input..."
+            CREATE_FLAGS+=( --notes "$CUSTOM_NOTES" )
+          elif [ -n "$CHANGELOG_NOTES" ]; then
+            echo "Menggunakan release notes dari CHANGELOG.md..."
+            echo "$CHANGELOG_NOTES" > release_notes_tmp.md
+            CREATE_FLAGS+=( --notes-file release_notes_tmp.md )
+          else
+            echo "Membuat release notes otomatis dari riwayat commit..."
+            CREATE_FLAGS+=( --generate-notes )
+          fi
+
+          if [ "${{ inputs.draft }}" = "true" ]; then
+            CREATE_FLAGS+=( --draft )
+          fi
+
+          if [ "${{ inputs.prerelease }}" = "true" ]; then
+            CREATE_FLAGS+=( --prerelease )
+          fi
+
+          gh release create "${CREATE_FLAGS[@]}"
+          echo "GitHub Release $TAG berhasil dibuat!"
+
+  # Build binary lintas platform & upload ke GitHub Release
+  upload-assets:
+    name: Upload Assets (${{ matrix.target }})
+    needs: create-release
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+          # macOS
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          # Windows
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.create-release.outputs.tag }}
+
+      - name: Ensure Cargo.toml matches release version
+        shell: bash
+        run: |
+          VERSION="${{ needs.create-release.outputs.version }}"
+          if [ -n "$VERSION" ]; then
+            sed -i.bak -E '0,/^version = .*/s//version = "'"$VERSION"'"/' Cargo.toml
+            sed -i.bak -E '/name = "z-web"/{n;s/version = ".*"/version = "'"$VERSION"'"/;}' Cargo.lock || true
+            rm -f Cargo.toml.bak Cargo.lock.bak
+          fi
+
+      - name: Build and Upload Binary Assets
+        uses: taiki-e/upload-rust-binary-action@v1
+        with:
+          bin: z-web
+          target: ${{ matrix.target }}
+          ref: refs/tags/${{ needs.create-release.outputs.tag }}
+          archive: $bin-$tag-$target
+          include: LICENSE, README.md, config.yaml
+          checksum: sha256
+          tar: unix
+          zip: windows
+          token: ${{ secrets.GITHUB_TOKEN }}

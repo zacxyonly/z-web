@@ -1,12 +1,32 @@
 # z-web
 
 ![CI](https://github.com/zacxyonly/z-web/actions/workflows/ci.yml/badge.svg)
+[![Release](https://github.com/zacxyonly/z-web/actions/workflows/release.yml/badge.svg)](https://github.com/zacxyonly/z-web/actions/workflows/release.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/zacxyonly/z-web?logo=github)](https://github.com/zacxyonly/z-web/releases)
 ![license](https://img.shields.io/badge/license-MIT-blue.svg)
 ![rust](https://img.shields.io/badge/rust-2021-orange.svg)
 
 Lightweight multi-server static file server with hot reload and optional PHP support. Zero config to get started.
 
 ## Installation
+
+### Pre-built Binaries (Linux, macOS, Windows)
+
+Download the latest pre-compiled binary for your system from the [Releases](https://github.com/zacxyonly/z-web/releases) page:
+
+- **Linux x86_64:** `z-web-*-x86_64-unknown-linux-musl.tar.gz` (Static, recommended) or `gnu`
+- **Linux ARM64:** `z-web-*-aarch64-unknown-linux-gnu.tar.gz`
+- **macOS Apple Silicon:** `z-web-*-aarch64-apple-darwin.tar.gz`
+- **macOS Intel:** `z-web-*-x86_64-apple-darwin.tar.gz`
+- **Windows x86_64:** `z-web-*-x86_64-pc-windows-msvc.zip`
+
+Extract and run:
+```bash
+tar -xzf z-web-*-x86_64-unknown-linux-musl.tar.gz
+./z-web
+```
+
+### Build from Source
 
 Requires the [Rust toolchain](https://rustup.rs/) (stable, edition 2021+).
 
@@ -108,6 +128,28 @@ RUST_LOG=z_web=warn ./z-web  # warnings only
 cargo test              # run unit tests
 cargo clippy -- -D warnings
 cargo fmt
+```
+
+## Releasing
+
+Releases are automated via GitHub Actions (`.github/workflows/release.yml`).
+
+### Method 1: Manual Trigger (Recommended)
+1. Go to the **Actions** tab in GitHub.
+2. Select the **Release** workflow from the left sidebar.
+3. Click **Run workflow**.
+4. Enter the version number (e.g., `1.2.0` or `v1.2.0`).
+5. Click **Run workflow**. The workflow will:
+   - Run tests, clippy, and formatting checks
+   - Ensure the git tag exists (creates and pushes `v<version>`)
+   - Generate GitHub Release notes from `CHANGELOG.md`
+   - Build cross-platform binaries (Linux x86_64 gnu/musl, Linux ARM64, macOS Intel/Apple Silicon, Windows)
+   - Generate SHA256 checksums and attach all assets to the release
+
+### Method 2: Push a Git Tag
+```bash
+git tag v1.2.0
+git push origin v1.2.0
 ```
 
 ## Contributing

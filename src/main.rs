@@ -13,6 +13,28 @@ use watcher::{spawn_config_watcher, spawn_watcher};
 
 #[tokio::main]
 async fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 {
+        match args[1].as_str() {
+            "-v" | "--version" => {
+                println!("z-web v{}", env!("CARGO_PKG_VERSION"));
+                return;
+            }
+            "-h" | "--help" => {
+                println!("z-web v{}", env!("CARGO_PKG_VERSION"));
+                println!(
+                    "Lightweight multi-server static file server with hot reload and PHP support\n"
+                );
+                println!("Usage: z-web [OPTIONS]\n");
+                println!("Options:");
+                println!("  -v, --version    Print version information");
+                println!("  -h, --help       Print help information");
+                return;
+            }
+            _ => {}
+        }
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
