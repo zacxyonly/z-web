@@ -30,7 +30,9 @@ async fn main() {
                 );
                 println!("Usage: z-web [OPTIONS]\n");
                 println!("Options:");
-                println!("  -c, --config <FILE>    Custom path to config.yaml (default: config.yaml)");
+                println!(
+                    "  -c, --config <FILE>    Custom path to config.yaml (default: config.yaml)"
+                );
                 println!("  -v, --version          Print version information");
                 println!("  -h, --help             Print help information");
                 return;
@@ -168,10 +170,7 @@ struct ServerInstance {
 }
 
 /// Spawn servers for the given configs, inserting into `running`.
-async fn spawn_servers(
-    servers: &[ServerConfig],
-    running: &mut HashMap<u16, ServerInstance>,
-) {
+async fn spawn_servers(servers: &[ServerConfig], running: &mut HashMap<u16, ServerInstance>) {
     for server_cfg in servers {
         let port = server_cfg.port;
 

@@ -56,7 +56,8 @@ pub async fn php_middleware(
             let has_html_index = dir.join("index.html").is_file();
             if !has_html_index && index_php.is_file() {
                 if !path.ends_with('/') {
-                    return axum::response::Redirect::permanent(&format!("{path}/")).into_response();
+                    return axum::response::Redirect::permanent(&format!("{path}/"))
+                        .into_response();
                 }
                 return run_php_cgi(&cfg, req, index_php).await;
             }

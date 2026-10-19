@@ -335,7 +335,10 @@ servers:
         let config = Config {
             servers: vec![server("0.0.0.0", 0, "web")],
         };
-        assert!(matches!(config.validate(), Err(ConfigError::InvalidPort(0))));
+        assert!(matches!(
+            config.validate(),
+            Err(ConfigError::InvalidPort(0))
+        ));
     }
 
     #[test]
