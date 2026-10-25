@@ -114,7 +114,8 @@ async fn run_php_cgi(cfg: &ServerConfig, req: Request, script_path: PathBuf) -> 
         .unwrap_or_else(|_| PathBuf::from(&cfg.web_folder));
 
     let mut cmd = Command::new(&cfg.php_cgi_path);
-    cmd.env_clear()
+    cmd.kill_on_drop(true)
+        .env_clear()
         .env("REDIRECT_STATUS", "200")
         .env("GATEWAY_INTERFACE", "CGI/1.1")
         .env("SERVER_PROTOCOL", "HTTP/1.1")
@@ -197,7 +198,6 @@ async fn run_php_cgi(cfg: &ServerConfig, req: Request, script_path: PathBuf) -> 
         }
         Err(_) => {
             error!(timeout_secs = 30, "php-cgi timed out, killing process");
-            let _ = child.start_kill();
             return (
                 StatusCode::GATEWAY_TIMEOUT,
                 "504 Gateway Timeout: PHP script execution timed out",

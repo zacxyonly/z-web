@@ -28,19 +28,7 @@ pub fn build_app(state: Arc<AppState>, cfg: &ServerConfig) -> Router {
     let php_cfg = Arc::new(cfg.clone());
 
     let folder_path = Path::new(&cfg.web_folder);
-    let mut serve_dir = ServeDir::new(&cfg.web_folder).append_index_html_on_directories(true);
-
-    if cfg.spa {
-        let index_file = folder_path.join("index.html");
-        serve_dir = serve_dir.fallback(ServeFile::new(index_file));
-    } else {
-        let not_found_file = folder_path.join("404.html");
-        if not_found_file.is_file() {
-            serve_dir = serve_dir.not_found_service(ServeFile::new(not_found_file));
-        }
-    }
-
-    Router::new()
+    let app = Router::new()
         .route("/healthz", get(health_handler))
         .route(
             "/livereload",
@@ -48,9 +36,29 @@ pub fn build_app(state: Arc<AppState>, cfg: &ServerConfig) -> Router {
                 let s = state_ws.clone();
                 async move { ws.on_upgrade(move |socket| handle_ws(socket, s)) }
             }),
-        )
-        .fallback_service(serve_dir)
-        .layer(middleware::from_fn(livereload_inject_middleware))
+        );
+
+    let app = if cfg.spa {
+        let index_file = folder_path.join("index.html");
+        let serve_dir = ServeDir::new(&cfg.web_folder)
+            .append_index_html_on_directories(true)
+            .fallback(ServeFile::new(index_file));
+        app.fallback_service(serve_dir)
+    } else {
+        let not_found_file = folder_path.join("404.html");
+        if not_found_file.is_file() {
+            let serve_dir = ServeDir::new(&cfg.web_folder)
+                .append_index_html_on_directories(true)
+                .not_found_service(ServeFile::new(not_found_file));
+            app.fallback_service(serve_dir)
+        } else {
+            let serve_dir = ServeDir::new(&cfg.web_folder)
+                .append_index_html_on_directories(true);
+            app.fallback_service(serve_dir)
+        }
+    };
+
+    app.layer(middleware::from_fn(livereload_inject_middleware))
         .layer(middleware::from_fn_with_state(php_cfg, php_middleware))
         .layer(CompressionLayer::new())
         .layer(SetResponseHeaderLayer::if_not_present(
