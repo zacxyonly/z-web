@@ -98,6 +98,9 @@ pub struct ServerConfig {
     /// Fallback 404 routes to index.html for Single Page Applications (React, Vue, Vite, etc.).
     #[serde(default)]
     pub spa: bool,
+    /// Optional upstream reverse proxy target (e.g. "http://127.0.0.1:8001").
+    #[serde(default)]
+    pub proxy: Option<String>,
 }
 
 impl ServerConfig {

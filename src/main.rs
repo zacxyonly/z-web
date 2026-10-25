@@ -1,5 +1,6 @@
 mod config;
 mod php;
+mod proxy;
 mod server;
 mod watcher;
 

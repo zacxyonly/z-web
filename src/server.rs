@@ -18,6 +18,7 @@ use tracing::{debug, warn};
 
 use crate::config::ServerConfig;
 use crate::php::php_middleware;
+use crate::proxy::handle_proxy;
 
 pub struct AppState {
     pub tx: broadcast::Sender<()>,
@@ -38,7 +39,21 @@ pub fn build_app(state: Arc<AppState>, cfg: &ServerConfig) -> Router {
             }),
         );
 
-    let app = if cfg.spa {
+    let app = if let Some(ref upstream) = cfg.proxy {
+        let client = Arc::new(reqwest::Client::builder().build().unwrap_or_default());
+        let upstream = Arc::new(upstream.clone());
+        let proxy_client = client.clone();
+        let proxy_upstream = upstream.clone();
+
+        let serve_dir = ServeDir::new(&cfg.web_folder)
+            .append_index_html_on_directories(true)
+            .fallback(axum::routing::any(move |req: axum::extract::Request| {
+                let c = proxy_client.clone();
+                let u = proxy_upstream.clone();
+                async move { handle_proxy(c, u, req).await }
+            }));
+        app.fallback_service(serve_dir)
+    } else if cfg.spa {
         let index_file = folder_path.join("index.html");
         let serve_dir = ServeDir::new(&cfg.web_folder)
             .append_index_html_on_directories(true)
